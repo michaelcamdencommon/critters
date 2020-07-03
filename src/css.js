@@ -14,7 +14,7 @@
  * the License.
  */
 
-import css from 'css';
+const css = require('css');
 
 /**
  * Parse a textual CSS Stylesheet into a Stylesheet instance.
@@ -24,7 +24,8 @@ import css from 'css';
  * @param {String} stylesheet
  * @returns {css.Stylesheet} ast
  */
-export function parseStylesheet (stylesheet) {
+
+function parseStylesheet (stylesheet) {
   return css.parse(stylesheet);
 }
 
@@ -35,7 +36,8 @@ export function parseStylesheet (stylesheet) {
  * @param {Object} options              Options to pass to `css.stringify()`
  * @param {Boolean} [options.compress]  Compress CSS output (removes comments, whitespace, etc)
  */
-export function serializeStylesheet (ast, options) {
+
+function serializeStylesheet (ast, options) {
   return css.stringify(ast, options);
 }
 
@@ -46,7 +48,8 @@ export function serializeStylesheet (ast, options) {
  * @param {Function} iterator   Invoked on each node in the tree. Return `false` to remove that node.
  * @returns {(rule) => void} nonDestructiveIterator
  */
-export function markOnly (predicate) {
+
+function markOnly (predicate) {
   return rule => {
     const sel = rule.selectors;
     if (predicate(rule) === false) {
@@ -65,7 +68,8 @@ export function markOnly (predicate) {
  * @private
  * @param {css.Rule} rule The Rule to apply marked selectors to (if they exist).
 */
-export function applyMarkedSelectors (rule) {
+
+function applyMarkedSelectors (rule) {
   if (rule.$$markedSelectors) {
     rule.selectors = rule.$$markedSelectors;
   }
@@ -80,7 +84,8 @@ export function applyMarkedSelectors (rule) {
  * @param {css.Rule} node       A Stylesheet or Rule to descend into.
  * @param {Function} iterator   Invoked on each node in the tree. Return `false` to remove that node.
  */
-export function walkStyleRules (node, iterator) {
+
+function walkStyleRules (node, iterator) {
   if (node.stylesheet) return walkStyleRules(node.stylesheet, iterator);
 
   node.rules = node.rules.filter(rule => {
@@ -100,7 +105,8 @@ export function walkStyleRules (node, iterator) {
  * @param {css.Rule} node2      A second tree identical to `node`
  * @param {Function} iterator   Invoked on each node in the tree. Return `false` to remove that node from the first tree, true to remove it from the second.
  */
-export function walkStyleRulesWithReverseMirror (node, node2, iterator) {
+
+function walkStyleRulesWithReverseMirror (node, node2, iterator) {
   if (node2 === null) return walkStyleRules(node, iterator);
 
   if (node.stylesheet) return walkStyleRulesWithReverseMirror(node.stylesheet, node2.stylesheet, iterator);
@@ -141,3 +147,12 @@ function filterSelectors (predicate) {
     this.selectors = this.selectors.filter(predicate);
   }
 }
+
+module.exports = {
+  parseStylesheet,
+  serializeStylesheet,
+  markOnly,
+  applyMarkedSelectors,
+  walkStyleRules,
+  walkStyleRulesWithReverseMirror,
+};

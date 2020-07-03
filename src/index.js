@@ -14,110 +14,26 @@
  * the License.
  */
 
-import path from 'path';
-import prettyBytes from 'pretty-bytes';
-import sources from 'webpack-sources';
-import postcss from 'postcss';
-import cssnano from 'cssnano';
-import log from 'webpack-log';
-import minimatch from 'minimatch';
-import { createDocument, serializeDocument, setNodeText } from './dom';
-import { parseStylesheet, serializeStylesheet, walkStyleRules, walkStyleRulesWithReverseMirror, markOnly, applyMarkedSelectors } from './css';
-import { tap } from './util';
+const prettyBytes = require('pretty-bytes');
+const fs = require('fs');
+const log = require('webpack-log');
+const { JSDOM } = require("jsdom");
+const { tap } = require('./util');
+const { setNodeText } = require('./dom');
+const { parseStylesheet, serializeStylesheet, walkStyleRules, walkStyleRulesWithReverseMirror, markOnly, applyMarkedSelectors } = require('./css');
+
 
 // Used to annotate this plugin's hooks in Tappable invocations
 const PLUGIN_NAME = 'critters-webpack-plugin';
 
-/**
- * The mechanism to use for lazy-loading stylesheets.
- * _[JS]_ indicates that a strategy requires JavaScript (falls back to `<noscript>`).
- *
- * - **default:** Move stylesheet links to the end of the document and insert preload meta tags in their place.
- * - **"body":** Move all external stylesheet links to the end of the document.
- * - **"media":** Load stylesheets asynchronously by adding `media="not x"` and removing once loaded. _[JS]_
- * - **"swap":** Convert stylesheet links to preloads that swap to `rel="stylesheet"` once loaded. _[JS]_
- * - **"js":** Inject an asynchronous CSS loader similar to [LoadCSS](https://github.com/filamentgroup/loadCSS) and use it to load stylesheets. _[JS]_
- * - **"js-lazy":** Like `"js"`, but the stylesheet is disabled until fully loaded.
- * @typedef {(default|'body'|'media'|'swap'|'js'|'js-lazy')} PreloadStrategy
- * @public
- */
-
-/**
- * Controls which keyframes rules are inlined.
- *
- * - **"critical":** _(default)_ inline keyframes rules that are used by the critical CSS.
- * - **"all":** Inline all keyframes rules.
- * - **"none":** Remove all keyframes rules.
- * @typedef {('critical'|'all'|'none')} KeyframeStrategy
- * @private
- * @property {String} keyframes     Which {@link KeyframeStrategy keyframe strategy} to use (default: `critical`)_
- */
-
-/**
- * Controls log level of the plugin. Specifies the level the logger should use. A logger will
- * not produce output for any log level beneath the specified level. Available levels and order
- * are:
- *
- * - **"info"** _(default)_
- * - **"warn"**
- * - **"error"**
- * - **"trace"**
- * - **"debug"**
- * - **"silent"**
- * @typedef {('info'|'warn'|'error'|'trace'|'debug'|'silent')} LogLevel
- * @public
- */
-
-/**
- * All optional. Pass them to `new Critters({ ... })`.
- * @public
- * @typedef Options
- * @property {Boolean} external     Inline styles from external stylesheets _(default: `true`)_
- * @property {Number} inlineThreshold Inline external stylesheets smaller than a given size _(default: `0`)_
- * @property {Number} minimumExternalSize If the non-critical external stylesheet would be below this size, just inline it _(default: `0`)_
- * @property {Boolean} pruneSource  Remove inlined rules from the external stylesheet _(default: `true`)_
- * @property {Boolean} mergeStylesheets Merged inlined stylesheets into a single <style> tag _(default: `true`)_
- * @property {String[]} additionalStylesheets Glob for matching other stylesheets to be used while looking for critical CSS _(default: ``)_.
- * @property {String} preload       Which {@link PreloadStrategy preload strategy} to use
- * @property {Boolean} noscriptFallback Add `<noscript>` fallback to JS-based strategies
- * @property {Boolean} inlineFonts  Inline critical font-face rules _(default: `false`)_
- * @property {Boolean} preloadFonts Preloads critical fonts _(default: `true`)_
- * @property {Boolean} fonts        Shorthand for setting `inlineFonts`+`preloadFonts`
- *  - Values:
- *  - `true` to inline critical font-face rules and preload the fonts
- *  - `false` to don't inline any font-face rules and don't preload fonts
- * @property {String} keyframes     Controls which keyframes rules are inlined.
- *  - Values:
- *  - `"critical"`: _(default)_ inline keyframes rules used by the critical CSS
- *  - `"all"` inline all keyframes rules
- *  - `"none"` remove all keyframes rules
- * @property {Boolean} compress     Compress resulting critical CSS _(default: `true`)_
- * @property {String} logLevel      Controls {@link LogLevel log level} of the plugin _(default: `"info"`)_
- */
-
-/**
- * Create a Critters plugin instance with the given options.
- * @public
- * @param {Options} options Options to control how Critters inlines CSS.
- * @example
- * // webpack.config.js
- * module.exports = {
- *   plugins: [
- *     new Critters({
- *       // Outputs: <link rel="preload" onload="this.rel='stylesheet'">
- *       preload: 'swap',
- *
- *       // Don't inline critical font-face rules, but preload the font URLs:
- *       preloadFonts: true
- *     })
- *   ]
- * }
- */
-export default class Critters {
+module.exports = class Critters {
   /** @private */
   constructor (options) {
     this.options = Object.assign({ logLevel: 'info', externalStylesheets: [] }, options || {});
-    this.options.pruneSource = this.options.pruneSource !== false;
+
+    // Eventually support this
+    this.options.pruneSource = false;
+    // this.options.pruneSource = this.options.pruneSource !== false;
     this.urlFilter = this.options.filter;
     if (this.urlFilter instanceof RegExp) {
       this.urlFilter = this.urlFilter.test.bind(this.urlFilter);
@@ -130,36 +46,25 @@ export default class Critters {
    */
   apply (compiler) {
     // hook into the compiler to get a Compilation instance...
-    tap(compiler, 'compilation', PLUGIN_NAME, false, compilation => {
-      // ... which is how we get an "after" hook into html-webpack-plugin's HTML generation.
-      if (compilation.hooks && compilation.hooks.htmlWebpackPluginAfterHtmlProcessing) {
-        tap(compilation, 'html-webpack-plugin-after-html-processing', PLUGIN_NAME, true, (htmlPluginData, callback) => {
-          this.process(compiler, compilation, htmlPluginData.html)
-            .then(html => { callback(null, { html }); })
-            .catch(callback);
-        });
-      } else {
-        // If html-webpack-plugin isn't used, process the first HTML asset as an optimize step
-        tap(compilation, 'optimize-assets', PLUGIN_NAME, true, (assets, callback) => {
-          let htmlAssetName;
-          for (const name in assets) {
-            if (name.match(/\.html$/)) {
-              htmlAssetName = name;
-              break;
-            }
-          }
-          if (!htmlAssetName) return callback(Error('Could not find HTML asset.'));
-          const html = assets[htmlAssetName].source();
-          if (!html) return callback(Error('Empty HTML asset.'));
+    tap(compiler, 'afterEmit', PLUGIN_NAME, true, (compilation, cb) => {
+      const stylesheets = Object.keys(compilation.assets).filter(file => file.match(/\.css$/));
 
-          this.process(compiler, compilation, String(html))
-            .then(html => {
-              assets[htmlAssetName] = new sources.RawSource(html);
-              callback();
-            })
-            .catch(callback);
-        });
+      if (!stylesheets.length) {
+        cb(null, {});
+        return;
       }
+
+      Promise.all(stylesheets.map(async file => {
+        const contents = await this.readFile(compilation, `.next/${file}`);
+        const dom = new JSDOM(`<!DOCTYPE html><html lang="en"><head><style type="text/css">${contents}</style></head><body></body></html>`);
+        const styleEl = dom.window.document.querySelector('style');
+        
+        this.processStyle(styleEl);
+        await this.writeFile(compilation, `.next/${file}.critical`, styleEl.textContent);
+      }))
+      .then(() => cb(null, {}))
+      .catch(cb);
+
     });
   }
 
@@ -181,199 +86,25 @@ export default class Critters {
     });
   }
 
-  /**
-   * Apply critical CSS processing to html-webpack-plugin
-   */
-  async process (compiler, compilation, html) {
-    const outputPath = compiler.options.output.path;
-    const publicPath = compiler.options.output.publicPath;
-
-    // Parse the generated HTML in a DOM we can mutate
-    const document = createDocument(html);
-
-    if (this.options.additionalStylesheets) {
-      const styleSheetsIncluded = [];
-      (this.options.additionalStylesheets || []).forEach(cssFile => {
-        if (styleSheetsIncluded.includes(cssFile)) {
-          return;
-        }
-        styleSheetsIncluded.push(cssFile);
-        const webpackCssAssets = Object.keys(compilation.assets).filter(file => minimatch(file, cssFile));
-        webpackCssAssets.map(asset => {
-          const tag = document.createElement('style');
-          tag.innerHTML = compilation.assets[asset].source();
-          document.head.appendChild(tag);
-        });
-      });
-    }
-
-    // `external:false` skips processing of external sheets
-    if (this.options.external !== false) {
-      const externalSheets = [].slice.call(document.querySelectorAll('link[rel="stylesheet"]'));
-      await Promise.all(externalSheets.map(
-        link => this.embedLinkedStylesheet(link, compilation, outputPath, publicPath)
-      ));
-    }
-
-    // go through all the style tags in the document and reduce them to only critical CSS
-    const styles = [].slice.call(document.querySelectorAll('style'));
-    await Promise.all(styles.map(
-      style => this.processStyle(style, document)
-    ));
-
-    if (this.options.mergeStylesheets !== false && styles.length !== 0) {
-      await this.mergeStylesheets(document);
-    }
-
-    // serialize the document back to HTML and we're done
-    return serializeDocument(document);
-  }
-
-  async mergeStylesheets (document) {
-    const styles = [].slice.call(document.querySelectorAll('style'));
-    if (styles.length === 0) {
-      this.logger.warn('Merging inline stylesheets into a single <style> tag skipped, no inline stylesheets to merge');
-      return;
-    }
-    const first = styles[0];
-    let sheet = first.textContent;
-    for (let i = 1; i < styles.length; i++) {
-      const node = styles[i];
-      sheet += node.textContent;
-      node.remove();
-    }
-    if (this.options.compress !== false) {
-      const before = sheet;
-      const processor = postcss([cssnano()]);
-      const result = await processor.process(before, { from: undefined });
-      // @todo sourcemap support (elsewhere first)
-      sheet = result.css;
-    }
-    setNodeText(first, sheet);
-  }
-
-  /**
-   * Inline the target stylesheet referred to by a <link rel="stylesheet"> (assuming it passes `options.filter`)
-   */
-  async embedLinkedStylesheet (link, compilation, outputPath, publicPath) {
-    const href = link.getAttribute('href');
-    const media = link.getAttribute('media');
-    const document = link.ownerDocument;
-
-    const preloadMode = this.options.preload;
-
-    // skip filtered resources, or network resources if no filter is provided
-    if (this.urlFilter ? this.urlFilter(href) : href.match(/^(https?:)?\/\//)) return Promise.resolve();
-
-    // path on disk (with output.publicPath removed)
-    let normalizedPath = href.replace(/^\//, '');
-    const pathPrefix = (publicPath || '').replace(/(^\/|\/$)/g, '') + '/';
-    if (normalizedPath.indexOf(pathPrefix) === 0) {
-      normalizedPath = normalizedPath.substring(pathPrefix.length).replace(/^\//, '');
-    }
-    const filename = path.resolve(outputPath, normalizedPath);
-
-    // try to find a matching asset by filename in webpack's output (not yet written to disk)
-    const relativePath = path.relative(outputPath, filename).replace(/^\.\//, '');
-    const asset = compilation.assets[relativePath];
-
-    // Attempt to read from assets, falling back to a disk read
-    let sheet = asset && asset.source();
-    if (!sheet) {
-      try {
-        sheet = await this.readFile(compilation, filename);
-        this.logger.warn(`Stylesheet "${relativePath}" not found in assets, but a file was located on disk.${this.options.pruneSource ? ' This means pruneSource will not be applied.' : ''}`);
-      } catch (e) {
-        this.logger.warn(`Unable to locate stylesheet: ${relativePath}`);
-        return;
-      }
-    }
-
-    // CSS loader is only injected for the first sheet, then this becomes an empty string
-    let cssLoaderPreamble = `function $loadcss(u,m,l){(l=document.createElement('link')).rel='stylesheet';l.href=u;document.head.appendChild(l)}`;
-    const lazy = preloadMode === 'js-lazy';
-    if (lazy) {
-      cssLoaderPreamble = cssLoaderPreamble.replace('l.href', `l.media='only x';l.onload=function(){l.media=m};l.href`);
-    }
-
-    // the reduced critical CSS gets injected into a new <style> tag
-    const style = document.createElement('style');
-    style.appendChild(document.createTextNode(sheet));
-    link.parentNode.insertBefore(style, link);
-
-    if (this.options.inlineThreshold && sheet.length < this.options.inlineThreshold) {
-      style.$$reduce = false;
-      this.logger.info(`\u001b[32mInlined all of ${href} (${sheet.length} was below the threshold of ${this.options.inlineThreshold})\u001b[39m`);
-      if (asset) {
-        delete compilation.assets[relativePath];
+  writeFile (compilation, filename, content) {
+    const fs = this.fs || compilation.outputFileSystem;
+    return new Promise((resolve, reject) => {
+      const callback = (err, data) => {
+        if (err) reject(err);
+        else resolve(data);
+      };
+      if (fs && fs.writeFile) {
+        fs.writeFile(filename, content, callback);
       } else {
-        this.logger.warn(`  > ${href} was not found in assets. the resource may still be emitted but will be unreferenced.`);
+        require('fs').writeFile(filename, content, 'utf8', callback);
       }
-      link.parentNode.removeChild(link);
-      return;
-    }
-
-    // drop references to webpack asset locations onto the tag, used for later reporting and in-place asset updates
-    style.$$name = href;
-    style.$$asset = asset;
-    style.$$assetName = relativePath;
-    style.$$assets = compilation.assets;
-    style.$$links = [link];
-
-    // Allow disabling any mutation of the stylesheet link:
-    if (preloadMode === false) return;
-
-    let noscriptFallback = false;
-
-    if (preloadMode === 'body') {
-      document.body.appendChild(link);
-    } else {
-      link.setAttribute('rel', 'preload');
-      link.setAttribute('as', 'style');
-      if (preloadMode === 'js' || preloadMode === 'js-lazy') {
-        const script = document.createElement('script');
-        const js = `${cssLoaderPreamble}$loadcss(${JSON.stringify(href)}${lazy ? (',' + JSON.stringify(media || 'all')) : ''})`;
-        script.appendChild(document.createTextNode(js));
-        link.parentNode.insertBefore(script, link.nextSibling);
-        style.$$links.push(script);
-        cssLoaderPreamble = '';
-        noscriptFallback = true;
-      } else if (preloadMode === 'media') {
-        // @see https://github.com/filamentgroup/loadCSS/blob/af1106cfe0bf70147e22185afa7ead96c01dec48/src/loadCSS.js#L26
-        link.setAttribute('rel', 'stylesheet');
-        link.removeAttribute('as');
-        link.setAttribute('media', 'only x');
-        link.setAttribute('onload', `this.media='${media || 'all'}'`);
-        noscriptFallback = true;
-      } else if (preloadMode === 'swap') {
-        link.setAttribute('onload', "this.rel='stylesheet'");
-        noscriptFallback = true;
-      } else {
-        const bodyLink = document.createElement('link');
-        bodyLink.setAttribute('rel', 'stylesheet');
-        if (media) bodyLink.setAttribute('media', media);
-        bodyLink.setAttribute('href', href);
-        document.body.appendChild(bodyLink);
-        style.$$links.push(bodyLink);
-      }
-    }
-
-    if (this.options.noscriptFallback !== false && noscriptFallback) {
-      const noscript = document.createElement('noscript');
-      const noscriptLink = document.createElement('link');
-      noscriptLink.setAttribute('rel', 'stylesheet');
-      noscriptLink.setAttribute('href', href);
-      if (media) noscriptLink.setAttribute('media', media);
-      noscript.appendChild(noscriptLink);
-      link.parentNode.insertBefore(noscript, link.nextSibling);
-      style.$$links.push(noscript);
-    }
+    });    
   }
 
   /**
    * Parse the stylesheet within a <style> element, then reduce it to contain only rules used by the document.
    */
-  async processStyle (style) {
+  processStyle (style) {
     if (style.$$reduce === false) return;
 
     const name = style.$$name ? style.$$name.replace(/^\//, '') : 'inline CSS';
@@ -392,7 +123,10 @@ export default class Critters {
     const before = sheet;
 
     // Skip empty stylesheets
-    if (!sheet) return;
+    if (!sheet) {
+      console.log('No sheet');
+      return;
+    }
 
     const ast = parseStylesheet(sheet);
     const astInverse = options.pruneSource ? parseStylesheet(sheet) : null;

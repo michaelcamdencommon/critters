@@ -1,56 +1,11 @@
 {
-  "name": "critters-webpack-plugin",
-  "version": "2.5.0",
+  "name": "cmn-critters-webpack-plugin",
+  "version": "1.0.0",
   "description": "Webpack plugin to inline critical CSS and lazy-load the rest.",
-  "main": "dist/critters.js",
-  "source": "src/index.js",
+  "main": "src/index.js",
   "license": "Apache-2.0",
-  "author": "The Chromium Authors",
-  "contributors": [
-    {
-      "name": "Jason Miller",
-      "email": "developit@google.com"
-    }
-  ],
-  "files": [
-    "src",
-    "dist"
-  ],
-  "keywords": [
-    "critical css",
-    "inline css",
-    "critical",
-    "critters",
-    "webpack plugin",
-    "performance"
-  ],
-  "repository": "GoogleChromeLabs/critters",
-  "scripts": {
-    "build": "microbundle -f cjs --no-compress --external all",
-    "docs": "documentation readme -q --no-markdown-toc -a public -s Usage --sort-order alpha src",
-    "prepare": "npm run -s build",
-    "release": "npm run build -s && git commit -am $npm_package_version && git tag $npm_package_version && git push && git push --tags && npm publish",
-    "test": "jest --coverage"
-  },
-  "babel": {
-    "presets": [
-      "env"
-    ]
-  },
-  "jest": {
-    "testEnvironment": "jsdom",
-    "testURL": "http://localhost",
-    "coverageReporters": [
-      "text"
-    ],
-    "collectCoverageFrom": [
-      "src/**/*"
-    ],
-    "watchPathIgnorePatterns": [
-      "node_modules",
-      "dist"
-    ]
-  },
+  "author": "Michael Camden",
+  "repository": "git@github.com:michaelcamdencommon/critters.git",
   "devDependencies": {
     "babel-core": "^6.26.0",
     "babel-jest": "^22.4.3",
