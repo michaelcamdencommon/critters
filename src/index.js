@@ -97,7 +97,7 @@ module.exports = class Critters {
 
           styleEl.$$name = file;
           styleEl.$$asset = asset;
-          styleEl.$$assetName = `.next/${file}`;
+          styleEl.$$assetName = `${file}`;
           styleEl.$$assets = compilation.assets;
           styleEl.$$links = null;
 
