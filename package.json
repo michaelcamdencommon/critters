@@ -1,6 +1,6 @@
 {
   "name": "cmn-critters-webpack-plugin",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Webpack plugin to inline critical CSS and lazy-load the rest.",
   "main": "src/index.js",
   "license": "Apache-2.0",
