@@ -35,37 +35,41 @@ module.exports = class ExtractCriticalCss {
   apply(compiler) {
     // hook into the compiler to get a Compilation instance...
     tap(compiler, "emit", PLUGIN_NAME, true, (compilation, cb) => {
-      const stylesheets = Object.keys(compilation.assets).filter((file) =>
-        file.match(/\.css$/)
-      );
-
-      if (!stylesheets.length) {
-        this.logger.warn("No stylesheets found in compilation");
-        cb(null, {});
-        return;
-      }
-
-      this.logger.info(`Found ${stylesheets.length} sheets in compilation`);
-
-      stylesheets.forEach((file) => {
-        const asset = compilation.assets[file];
-        const contents = asset.source();
-
-        this.processSheet({
-          contents,
-          file,
-          compilation,
-        });
-      });
-
-      this.minifyCritical(compilation)
-        .then(() => {
-          cb(null, {});
-        })
-        .catch((e) => {
-          cb(e);
-        });
+      this.process(compilation, cb);
     });
+  }
+
+  process(compilation, cb) {
+    const stylesheets = Object.keys(compilation.assets).filter((file) =>
+      file.match(/\.css$/)
+    );
+
+    if (!stylesheets.length) {
+      this.logger.info("No stylesheets found in compilation");
+      cb(null, {});
+      return;
+    }
+
+    this.logger.info(`Found ${stylesheets.length} sheets in compilation`);
+
+    stylesheets.forEach((file) => {
+      const asset = compilation.assets[file];
+      const contents = asset.source();
+
+      this.processSheet({
+        contents,
+        file,
+        compilation,
+      });
+    });
+
+    this.minifyCritical(compilation)
+      .then(() => {
+        cb(null, {});
+      })
+      .catch((e) => {
+        cb(e);
+      });
   }
 
   processSheet({ contents, file, compilation }) {
@@ -107,8 +111,9 @@ module.exports = class ExtractCriticalCss {
               const anyMatches = node.selector
                 .split(",")
                 .find((s) => s.match(matcher));
+
               if (anyMatches) {
-                if (node.parent) {
+                if (node.parent && node.parent.type !== "root") {
                   additionalRules.push(node.parent.remove());
                 } else {
                   additionalRules.push(node.remove());
@@ -146,28 +151,17 @@ module.exports = class ExtractCriticalCss {
       return;
     }
 
-    const criticalSheetPercent =
-      ((criticalSheet.length / contents.length) * 100) | 0;
-
     // Inject additional css after calculation
     if (this.options.additionalCss && this.options.additionalCss.length) {
       criticalSheet += this.options.additionalCss;
     }
 
     this.logger.info(
-      "\u001b[32mInlined " +
-        prettyBytes(criticalSheet.length) +
-        " (" +
-        criticalSheetPercent +
-        "% of original " +
-        prettyBytes(contents.length) +
-        ") of " +
-        file +
-        ".\u001b[39m"
+      "\u001b[32mInlined " + prettyBytes(criticalSheet.length) + ".\u001b[39m"
     );
 
-    // Update the stylesheet in the compilation
-    compilation[file] = new sources.LineToLineMappedSource(
+    // Update the stylesheet in the compilation (also updates the sourcemap)
+    compilation.assets[file] = new sources.LineToLineMappedSource(
       mainSheet,
       file,
       contents
