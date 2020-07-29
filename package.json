@@ -1,62 +1,25 @@
 {
   "name": "cmn-critters-webpack-plugin",
-  "version": "1.0.1",
-  "description": "Webpack plugin to inline critical CSS and lazy-load the rest.",
+  "version": "2.0.0",
+  "description": "Webpack plugin to extract critical CSS from the compilation, and generate a sibling .critical file which contains the extracted critical CSS.",
   "main": "src/index.js",
-  "license": "Apache-2.0",
   "author": "Michael Camden",
   "repository": "git@github.com:michaelcamdencommon/critters.git",
+  "scripts": {
+    "test": "jest spec"
+  },
+  "jest": {
+    "testURL": "http://localhost"
+  },
   "devDependencies": {
-    "babel-core": "^6.26.0",
-    "babel-jest": "^22.4.3",
-    "babel-preset-env": "^1.6.1",
-    "css-loader": "^0.28.11",
-    "documentation": "^6.3.2",
-    "eslint": "^4.19.1",
-    "eslint-config-standard": "^11.0.0",
-    "eslint-plugin-import": "^2.11.0",
-    "eslint-plugin-jest": "^21.15.1",
-    "eslint-plugin-node": "^6.0.1",
-    "eslint-plugin-promise": "^3.7.0",
-    "eslint-plugin-standard": "^3.0.1",
-    "file-loader": "^1.1.11",
-    "html-webpack-plugin": "^3.2.0",
-    "jest": "^22.4.3",
-    "microbundle": "^0.4.4",
-    "mini-css-extract-plugin": "^0.4.0",
-    "webpack": "^4.6.0"
+    "jest": "^22.4.3"
   },
   "dependencies": {
-    "css": "^2.2.1",
-    "cssnano": "^4.1.7",
-    "jsdom": "^12.0.0",
+    "cssnano": "^4.1.10",
     "lodash": "^4.17.19",
-    "minimatch": "^3.0.4",
-    "parse5": "^4.0.0",
-    "postcss": "^7.0.5",
+    "postcss": "^7.0.32",
     "pretty-bytes": "^4.0.2",
     "webpack-log": "^2.0.0",
     "webpack-sources": "^1.3.0"
-  },
-  "eslintConfig": {
-    "extends": [
-      "standard",
-      "plugin:jest/recommended"
-    ],
-    "rules": {
-      "indent": [
-        2,
-        2
-      ],
-      "semi": [
-        2,
-        "always"
-      ],
-      "prefer-const": 1
-    },
-    "globals": {
-      "document": 0,
-      "DOMParser": 1
-    }
   }
 }
